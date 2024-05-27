@@ -243,13 +243,14 @@ def postprocess_detections(detections, category_index, image_np, threshold):
             for name in CLASSES:
                 if name in class_sample.lower():
                     class_name.append(name)
-            
+                    
             score = detection_scores[i]
             ymin, xmin, ymax, xmax = box
             (left, right, top, bottom) = (xmin * image_np.shape[1], xmax * image_np.shape[1],
                                         ymin * image_np.shape[0], ymax * image_np.shape[0])
-            image_with_detections = cv.rectangle(image_with_detections, (int(left), int(top)), (int(right), int(bottom)), (0, 255, 0), 4)
-            image_with_detections = cv.putText(image_with_detections, f'{name}-{"%.2f"%score}', (int(left), int(top) - 10), cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 4)
+            color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+            image_with_detections = cv.rectangle(image_with_detections, (int(left), int(top)), (int(right), int(bottom)), color, 4)
+            image_with_detections = cv.putText(image_with_detections, f'{class_name[-1]}-{"%.2f"%score}', (int(left), int(top) - 10), cv.FONT_HERSHEY_SIMPLEX, 0.9, color, 4)
 
     if len(class_name) < 1:
         return None
