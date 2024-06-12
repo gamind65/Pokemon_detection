@@ -30,19 +30,19 @@ def load_custom_labels(labels_path):
 def loadPretrainedModel():
     # load pretrained yolo model
     #yolo_file = os.path.join(os.path.dirname(__file__), "Models\yolo_model.pt")
-    yolo_model = YOLO(r'Models\yolo_model.pt')
+    yolo_model = YOLO('./Models/yolo_model.pt')
     
     # load pretrained FasterRCNN model
     fast_model = fasterrcnn_resnet50_fpn_v2(pretrained=False)
     num_classes = 19
     in_features = fast_model.roi_heads.box_predictor.cls_score.in_features
     fast_model.roi_heads.box_predictor = torchvision.models.detection.faster_rcnn.FastRCNNPredictor(in_features, num_classes)
-    checkpoint = torch.load(r"Models\model-epoch200.pt")
+    checkpoint = torch.load("./Models/model-epoch200.pt", map_location=torch.device('cpu'))
     fast_model.load_state_dict(checkpoint.state_dict(), strict=False)
     fast_model.eval()
     
     # load SSD model
-    ssd_dir = r'Models\saved_model'
+    ssd_dir = './Models/saved_model'
     ssd_model = tf.saved_model.load(ssd_dir)
     
     return yolo_model, fast_model, ssd_model 
@@ -58,7 +58,7 @@ CLASSES = ['cinderace', 'dracovish', 'dragonite', 'eevee', 'eternatus', 'gengar'
 transform = transforms.Compose([ 
     transforms.ToTensor() 
 ]) 
-labels_path = r'Models\label_map.txt'
+labels_path = './Models/label_map.txt'
 category_index = load_custom_labels(labels_path)
 
 #------------------------------------------------------------------------------------------------------------------------------#
