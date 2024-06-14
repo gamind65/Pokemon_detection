@@ -1,65 +1,39 @@
-import random
-import torch
 import requests
 import cv2 as cv
-import torchvision
 import numpy as np 
 from PIL import Image
-from io import BytesIO
 import streamlit as sl
-import tensorflow as tf
-from ultralytics import YOLO
-import torchvision.transforms as transforms 
-import torchvision.transforms.functional as TF
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor, fasterrcnn_resnet50_fpn_v2
+
+from utils import SSD_model
+from utils import YOLO_model
+from utils import PokemonInfo
+from utils import FasterRCNN_model
 
 #------------------------------------------------------------------------------------------------------------------------------#
 # set up streamlit interface layout
 sl.set_page_config(layout="wide")
 
-# Load the custom labels from .txt file for SSD
-def load_custom_labels(labels_path):
-    with open(labels_path, 'r') as file:
-        lines = file.readlines()
-    category_index = {}
-    for i, line in enumerate(lines):
-        category_index[i + 1] = line.strip()
-    return category_index
+# load custom labels for FasterRCNN-ResNet50v1-fpn
+fast_classes = ['cinderace', 'dracovish', 'dragonite', 'eevee', 'eternatus', 'gengar', 'grookey', 'inteleon',
+           'lucario', 'meowth', 'mew', 'mr-mime', 'morpeko', 'pikachu', 'sirfetchd', 'wobbuffet', 'yamper',
+           'zacian', 'zamazenta']
 
 @sl.cache_resource()
 def loadPretrainedModel():
     # load pretrained yolo model
-    #yolo_file = os.path.join(os.path.dirname(__file__), "Models\yolo_model.pt")
-    yolo_model = YOLO('./Models/yolo_model.pt')
+    yolo_model = YOLO_model.model('./Models/yolo_model.pt')
     
     # load pretrained FasterRCNN model
-    fast_model = fasterrcnn_resnet50_fpn_v2(pretrained=False)
-    num_classes = 19
-    in_features = fast_model.roi_heads.box_predictor.cls_score.in_features
-    fast_model.roi_heads.box_predictor = torchvision.models.detection.faster_rcnn.FastRCNNPredictor(in_features, num_classes)
-    checkpoint = torch.load("./Models/model-epoch200.pt", map_location=torch.device('cpu'))
-    fast_model.load_state_dict(checkpoint.state_dict(), strict=False)
-    fast_model.eval()
+    fast_model = FasterRCNN_model.model('./Models/model-epoch200.pt', fast_classes)
     
     # load SSD model
     ssd_dir = './Models/saved_model'
-    ssd_model = tf.saved_model.load(ssd_dir)
+    labels_path = './Models/label_map.txt'
+    ssd_model = SSD_model.model(ssd_dir, labels_path, fast_classes)
     
     return yolo_model, fast_model, ssd_model 
     
 yolo_model, fast_model, ssd_model = loadPretrainedModel()
-
-# load custom labels for FasterRCNN-ResNet50v1-fpn
-CLASSES = ['cinderace', 'dracovish', 'dragonite', 'eevee', 'eternatus', 'gengar', 'grookey', 'inteleon',
-           'lucario', 'meowth', 'mew', 'mr-mime', 'morpeko', 'pikachu', 'sirfetchd', 'wobbuffet', 'yamper',
-           'zacian', 'zamazenta']
-
-# define a transform funtion for FasterRCNN
-transform = transforms.Compose([ 
-    transforms.ToTensor() 
-]) 
-labels_path = './Models/label_map.txt'
-category_index = load_custom_labels(labels_path)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 def init_col1(col1):
@@ -113,151 +87,6 @@ def init_col2(col2):
         else:
             sl.write('Please upload your image')
             return None
-        
-#---------------------------------------------------------------------------------------------------------------------------------------------#
-# find pokemon avatar 
-def get_pokemon_index(data):
-    return data['id']
-
-def get_pokemon_avatar(data):
-    return data['sprites']['other']['official-artwork']['front_default']
-
-# get pokemon element
-def get_pokemon_element(data):
-    return [data['types'][i]['type']['name'] for i in range(len(data['types']))]
-
-# get pokemon evolution chain
-def get_pokemon_evo_chain(data):
-    # get evolution_chain json data
-    try:
-        evo_data = requests.get(requests.get(data['species']['url']).json()['evolution_chain']['url']).json()
-        evo_name = []
-        # get name of this pokemon based, first and second evolution
-        evo_name.extend((evo_data['chain']['species']['name'],
-                        evo_data['chain']['evolves_to'][0]['species']['name'],
-                        *[evo_data['chain']['evolves_to'][0]['evolves_to'][i]['species']['name'] for i in range(len(evo_data['chain']['evolves_to'][0]['evolves_to']))]))
-        return ' -> '.join(name for name in evo_name)
-    
-    except:
-        return 'No evolution'
-
-def get_pokemon_info(data):
-    """Show"""
-    sl.write(f'Pokedex number: #{get_pokemon_index(data)}')
-    
-    # show images
-    img = Image.open(BytesIO(requests.get(get_pokemon_avatar(data)).content))
-    sl.image(img, channels='BGR', width=350)
-    
-    # show element(s)
-    sl.write('Element:', ', '.join(get_pokemon_element(data)))
-    
-    # show evolution chain
-    sl.write('\nEvolution Chain:', get_pokemon_evo_chain(data))
-
-#-----------------------------------------------------------------------------------------------------------------------------------------------#
-def yolo_detect(image, threshold):
-    # detect
-    sl.write('Detecting image...')
-    res = yolo_model.predict(image, conf=threshold)
-    results = res[0]
-    names = []
-                
-    # get and draw boxes
-    for r in res:
-        im_array = r.plot()
-        im = Image.fromarray(im_array[..., ::-1])
-    im = np.array(im)
-    sl.image(im, width=750)
-    
-    # get names 
-    for result in results:
-        detection_count = result.boxes.shape[0]
-        for i in range(detection_count):
-            cls = int(result.boxes.cls[i].item())
-            names.append(result.names[cls])
-    
-    # get pokemons information
-    if len(names) > 0:
-        sl.write('Detected pokemons:', names)
-    names = [new.lower() for new in list(set(names))]
-    
-    return names
-
-
-def show(img, boxes, labels, scores):
-    for bbox, label, score in zip(boxes, labels, scores):
-        x1, y1, x2, y2 = [int(coord) for coord in bbox]
-        cv.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-        cv.rectangle(img, (x1, y1), (x2, y2), color, 8)
-        cv.putText(img, f'{CLASSES[int(label)-1]}-{"%.2f"%score}', (x1, y1-10), cv.FONT_HERSHEY_SIMPLEX, 1, color, 4)
-    sl.image(np.asarray(img), channels="BGR", width=750)
-        
-def faster_detect(image, threshold):
-    sl.write('Detecting image...')
-    img_transform = transform(image).unsqueeze(0) 
-    output = fast_model(img_transform)
-
-    idx = output[0]['scores'] > threshold
-    filtered_boxes = output[0]['boxes'][idx]
-    filtered_labels = output[0]['labels'][idx] 
-    filtered_scores = output[0]['scores'][idx]
-    
-    if len(filtered_boxes) < 0:
-        #sl.write('No pokemon detected')
-        return
-    else:
-        labels_out = [CLASSES[int(i)-1] for i in filtered_labels]
-        labels = [f"{CLASSES[i]}: {score:.2f}" for i, score in zip(filtered_labels, filtered_scores)]
-        #result = draw_bounding_boxes(torch.tensor(image).permute(2,0,1), boxes=filtered_boxes, width=8, labels=labels)
-        show(image, filtered_boxes, filtered_labels, filtered_scores)
-        sl.write(labels_out)
-        
-        return list(set(labels_out))
-        
-
-def ssd_detect(image, threshold):
-    sl.write('Detecting image...')
-    input_tensor = tf.convert_to_tensor(image)
-    input_tensor = input_tensor[tf.newaxis,...]
-
-    # Perform detection
-    detections = ssd_model(input_tensor)
-    class_name =  postprocess_detections(detections, category_index, image, threshold)
-    return class_name
-
-# Postprocess the detection results
-def postprocess_detections(detections, category_index, image_np, threshold):
-    detection_boxes = detections['detection_boxes'][0].numpy()
-    detection_classes = detections['detection_classes'][0].numpy().astype(np.int32)
-    detection_scores = detections['detection_scores'][0].numpy()
-
-    image_with_detections = image_np.copy()
-    class_name = []
-    
-    for i in range(len(detection_boxes)):
-        if detection_scores[i] >= threshold:  # You can adjust the threshold
-            box = detection_boxes[i]
-            class_sample = category_index[detection_classes[i]]
-            for name in CLASSES:
-                if name in class_sample.lower():
-                    class_name.append(name)
-                    
-            score = detection_scores[i]
-            ymin, xmin, ymax, xmax = box
-            (left, right, top, bottom) = (xmin * image_np.shape[1], xmax * image_np.shape[1],
-                                        ymin * image_np.shape[0], ymax * image_np.shape[0])
-            color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-            image_with_detections = cv.rectangle(image_with_detections, (int(left), int(top)), (int(right), int(bottom)), color, 4)
-            image_with_detections = cv.putText(image_with_detections, f'{class_name[-1]}-{"%.2f"%score}', (int(left), int(top) - 10), cv.FONT_HERSHEY_SIMPLEX, 0.9, color, 4)
-
-    if len(class_name) < 1:
-        return None
-    else:
-        sl.image(image_with_detections, channels="BGR", width=750)
-        sl.write('Detected pokemons:', class_name)
-        return class_name
 
 #----------------------------------------------------------------------------------------------------------------------------    
 def detect_image(col, model, threshold, button, image):
@@ -277,11 +106,11 @@ def detect_image(col, model, threshold, button, image):
             else:
                 detected_names = None
                 if model == 'YOLO-V8x':
-                    detected_names = yolo_detect(image, threshold)
+                    detected_names = yolo_model.detect(image, threshold)
                 if model == 'FasterRCNN-ResNet50':
-                    detected_names = faster_detect(image, threshold)
+                    detected_names = fast_model.detect(image, threshold)
                 if model == 'SSD-ResNet50':
-                    detected_names = ssd_detect(image, threshold)
+                    detected_names = ssd_model.detect(image, threshold)
                     
                 if (detected_names == None) or (len(detected_names) == 0):
                     sl.write('No pokemon detected!')
@@ -296,8 +125,9 @@ def detect_image(col, model, threshold, button, image):
                         name = 'morpeko-full-belly' 
                     sl.markdown("""---""")
                     sl.write('Pokemon name:', name)
+                    
                     request = requests.get(f'https://pokeapi.co/api/v2/pokemon/{name}')
-                    get_pokemon_info(request.json())
+                    PokemonInfo.get_pokemon_info(request.json())
     
         
 #-------------------------------------------------------------------------------------------#
